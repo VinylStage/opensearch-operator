@@ -59,9 +59,43 @@ class OpenSearchOperatorCharm(OpenSearchBaseCharm):
         self.unit.status = MaintenanceStatus(InstallProgress)
         try:
             self.opensearch.install()
+            if self._is_k8s():
+                self._apply_pod_config()
             self.status.clear(InstallProgress)
         except OpenSearchInstallError:
             self.unit.status = BlockedStatus(InstallError)
+
+    def _is_k8s(self) -> bool:
+        """Check if the charm is running in a Kubernetes environment."""
+        return os.path.exists('/var/run/secrets/kubernetes.io')
+            
+    def _apply_pod_config(self):  # 추가된 메서드
+    pod_spec = {
+        'containers': [{
+            'name': 'opensearch',
+            'image': 'opensearchproject/opensearch:latest',
+            'securityContext': {
+                'privileged': True
+            },
+            'volumeMounts': [{
+                'name': 'opensearch-data',
+                'mountPath': '/usr/share/opensearch/data'
+            }]
+        }],
+        'volumes': [{
+            'name': 'opensearch-data',
+            'hostPath': {
+                'path': '/var/lib/opensearch/data',
+                'type': 'DirectoryOrCreate'
+            }
+        }],
+        'securityContext': {
+            'runAsUser': 0,
+            'fsGroup': 2000
+        }
+    }
+
+    self.model.pod.set_spec(pod_spec)
 
     def _on_upgrade_peer_relation_created(self, _) -> None:
         self._upgrade.save_snap_revision_after_first_install()
